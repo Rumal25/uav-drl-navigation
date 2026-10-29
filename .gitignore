@@ -1,0 +1,14 @@
+# Python environment (huge, everyone installs their own)
+.venv/
+__pycache__/
+
+# W&B and TensorBoard logs (large; the charts are already online in W&B)
+wandb/
+runs/
+
+# checkpoints (many files; keep only the final models)
+models/*_ckpt/
+
+# Windows / editor files
+.vscode/
+Thumbs.db
