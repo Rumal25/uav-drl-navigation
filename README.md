@@ -1,6 +1,6 @@
 # UAV Navigation with Deep Reinforcement Learning
 
-This project trains a UAV to reach a goal and avoid obstacles in a 50 m x 50 m map using deep reinforcement learning. The state and action spaces are continuous. I trained two algorithms, PPO and SAC, and compared them.
+This project trains a UAV to reach a goal and avoid obstacles in a 50 m x 50 m map using deep reinforcement learning. The state and action spaces are continuous. I trained two algorithms, PPO and SAC, and compared them. I also implemented the environment and PPO from scratch with NumPy and PyTorch, without Gymnasium or Stable-Baselines3.
 
 ![Trajectories](figures/trajectories.png)
 
@@ -63,7 +63,7 @@ An episode is truncated after 600 steps (150 s).
 
 ## Algorithms
 
-Both algorithms use Stable-Baselines3 with PyTorch. The actor and critic networks are MLPs with two hidden layers of 256 units and ReLU activation. Training was logged with Weights & Biases.
+Both algorithms use Stable-Baselines3 with PyTorch. The actor and critic networks are MLPs with two hidden layers of 256 units. PPO uses Tanh activation (the Stable-Baselines3 default for PPO) and SAC uses ReLU. Training was logged with Weights & Biases.
 
 | Parameter | PPO | SAC |
 |---|---|---|
@@ -110,6 +110,72 @@ Path ratio is the flown distance divided by the straight line distance from star
 
 Both policies learned to use the LiDAR to avoid obstacles and performed much better than the baseline. On the denser maps, SAC kept its performance while PPO dropped to 91.5%. SAC also flew more direct paths.
 
+## PPO from scratch (NumPy and PyTorch)
+
+The `scratch/` folder contains a second version that does not use Gymnasium or Stable-Baselines3. The environment is written with NumPy only, and PPO is implemented directly in PyTorch.
+
+The NumPy environment gives exactly the same observations and rewards as the Gymnasium version for the same seed and actions, so the results can be compared directly.
+
+### Implementation
+
+- Actor: MLP 43 -> 256 -> 256 -> 2 with Tanh, outputs the mean of a Gaussian. The standard deviation is a separate learned parameter that starts at 1.
+- Critic: MLP 43 -> 256 -> 256 -> 1 with Tanh, outputs the state value.
+- Orthogonal weight initialization, with a small gain (0.01) on the actor output so the first actions are centered at zero.
+- Rollouts from 4 environments, 1024 steps each (4096 steps per update).
+- Advantages with GAE. When an episode is cut by the time limit, the value of the next state is added to the reward, so a time out is not treated like a crash.
+- Clipped PPO objective, 10 epochs over the rollout in minibatches of 256, advantages normalized per minibatch.
+- Separate Adam optimizers for the actor and the critic, gradient clipping at 0.5.
+- Logged to W&B: success rate, policy and value loss, approximate KL, clip fraction, explained variance and action std.
+
+| Parameter | Value |
+|---|---|
+| Training steps | 400,000 |
+| Parallel environments | 4 |
+| Steps per update | 1024 per environment |
+| Epochs per update | 10 |
+| Minibatch size | 256 |
+| Learning rate | 0.0003 |
+| Discount factor (gamma) | 0.99 |
+| GAE lambda | 0.95 |
+| Clip range | 0.2 |
+| Max gradient norm | 0.5 |
+| Entropy coefficient | 0 |
+
+### Results
+
+Evaluated on the same 200 test maps with deterministic actions.
+
+| Policy | Success (15 obstacles) | Collision (15 obstacles) | Success (25 obstacles) | Collision (25 obstacles) | Flight time | Path ratio |
+|---|---|---|---|---|---|---|
+| PPO from scratch | 97.5% | 2.5% | 97.0% | 3.0% | 12.2 s | 1.04 |
+| PPO (Stable-Baselines3) | 97.5% | 2.5% | 91.5% | 8.5% | 12.6 s | 1.07 |
+
+![PPO from scratch](scratch/trajectories_scratch.png)
+
+The from-scratch version reaches the same success rate as Stable-Baselines3 on the training setting, which validates the implementation. It reached about 90% training success after about 30,000 steps. It also did better on the denser 25 obstacle maps, but each version was trained with one seed only, so more seeds are needed before saying it is better.
+
+### Files
+
+```
+scratch/
+    env_np.py           environment in pure NumPy
+    ppo.py              actor, critic, rollout buffer, GAE and PPO update
+    train_ppo.py        training loop with W&B logging
+    evaluate_np.py      evaluation on 200 test maps
+    test_env_np.py      checks the NumPy environment against the Gymnasium one
+    test_networks.py    checks network shapes and outputs
+    test_rollout.py     checks rollout collection
+    test_gae.py         checks GAE on a small hand example
+```
+
+### Usage
+
+```
+cd scratch
+python train_ppo.py --steps 400000 --seed 0
+python evaluate_np.py
+```
+
 ## Project Structure
 
 ```
@@ -121,6 +187,7 @@ uav_drl/
     evaluate.py     evaluation on 200 test maps
     models/         trained models
     figures/        figures used in this README
+    scratch/        environment and PPO implemented from scratch
 ```
 
 ## Installation
